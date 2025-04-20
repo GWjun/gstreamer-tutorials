@@ -1,0 +1,5 @@
+{
+  "cmake.configureArgs": [
+    "-DPKG_CONFIG_EXECUTABLE=/Library/Frameworks/GStreamer.framework/Versions/1.0/bin/pkg-config"
+  ]
+}

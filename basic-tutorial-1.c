@@ -4,9 +4,7 @@
 #include <TargetConditionals.h>
 #endif
 
-int
-tutorial_main(int argc, char* argv[])
-{
+int tutorial_main(int argc, char* argv[]) {
     GstElement* pipeline;
     GstBus* bus;
     GstMessage* msg;
