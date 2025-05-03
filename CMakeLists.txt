@@ -6,7 +6,7 @@ find_package(PkgConfig REQUIRED)
 pkg_check_modules(GSTREAMER REQUIRED IMPORTED_TARGET gstreamer-1.0)
 
 
-file(GLOB TUTORIAL_SOURCES "src/basic-tutorial-*.c")
+file(GLOB TUTORIAL_SOURCES "tutorials/basic-tutorial-*.c")
 
 if(NOT TUTORIAL_SOURCES)
     message(WARNING "No tutorial source files found matching the pattern.")
@@ -25,3 +25,10 @@ foreach(SOURCE_FILE ${TUTORIAL_SOURCES})
     # GStreamer 라이브러리 링크
     target_link_libraries(${EXECUTABLE_NAME} PRIVATE PkgConfig::GSTREAMER)
 endforeach()
+
+# src/main.c를 위한 실행 파일 정의
+add_executable(main_app src/main.c)
+
+# GStreamer 라이브러리 링크
+target_link_libraries(main_app PRIVATE PkgConfig::GSTREAMER)
+message(STATUS "Configuring executable: main_app from src/main.c")

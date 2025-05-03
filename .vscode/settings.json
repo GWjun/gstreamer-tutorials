@@ -1,5 +1,12 @@
 {
   "cmake.configureArgs": [
     "-DPKG_CONFIG_EXECUTABLE=/Library/Frameworks/GStreamer.framework/Versions/1.0/bin/pkg-config"
-  ]
+  ],
+  "files.associations": {
+    "*.page-template": "vue",
+    "*.layout-template": "vue",
+    "*.vue": "vue",
+    "*.tsx": "typescriptreact",
+    "navigation.h": "c"
+  }
 }
