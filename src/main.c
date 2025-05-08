@@ -2,12 +2,16 @@
 #include <glib.h>
 #include <stdio.h>
 
-// 데이터 구조체 정의 (source, decodebin 제거, uridecodebin 추가)
+#ifdef __APPLE__
+#include <TargetConditionals.h>
+#endif
+
+#define DEFAULT_RTSP_URI "http://cctvsec.ktict.co.kr/138//JTYQpiZnGi4tnbFrn9n6pIiSJcySItxTBwQWVCrVLclBVzg4Fkof3+g7F4ae9hmVxX5rvfUcP+jTHNPljaZSBMkjpQnnxVKaUQo+7ilJFQ="
+
 typedef struct _CustomData {
     GstElement* pipeline;
-    GstElement* uri_decode_bin; // hlssrc와 decodebin 대신 사용
+    GstElement* uri_decode_bin;
     GstElement* video_tee;
-    // GstElement* audio_tee; // 오디오 사용 시 필요
     GstElement* video_queue_display;
     GstElement* video_convert_display;
     GstElement* video_sink_display;
@@ -17,8 +21,6 @@ typedef struct _CustomData {
     GstElement* video_encoder;
     GstElement* muxer;
     GstElement* file_sink;
-    // 오디오 관련 엘리먼트 포인터 추가 (필요시)
-    // ...
 
     GMainLoop* loop;
     gboolean recording;
@@ -32,11 +34,11 @@ static void stop_recording(CustomData* data);
 static gboolean handle_keyboard(GIOChannel* source, GIOCondition condition, CustomData* data);
 
 
-int main(int argc, char* argv[]) {
+int clipper_main(int argc, char* argv[]) {
     CustomData data;
     GstBus* bus;
     GIOChannel* io_stdin;
-    const gchar* hls_uri = "http://210.99.70.120:1935/live/cctv001.stream/playlist.m3u8";
+    const gchar* hls_uri = DEFAULT_RTSP_URI;
 
     // 초기화
     gst_init(&argc, &argv);
@@ -50,7 +52,7 @@ int main(int argc, char* argv[]) {
         return -1;
     }
 
-    // uridecodebin 생성 및 설정
+    // uridecodebin 생성
     data.uri_decode_bin = gst_element_factory_make("uridecodebin", "uri-source-decoder");
     if (!data.uri_decode_bin) {
         g_printerr("uridecodebin element could not be created. Check core GStreamer installation.\n");
@@ -60,11 +62,14 @@ int main(int argc, char* argv[]) {
     // URI 설정
     g_object_set(G_OBJECT(data.uri_decode_bin), "uri", hls_uri, NULL);
 
-    // 나머지 엘리먼트 생성 (이전 코드와 유사)
     data.video_tee = gst_element_factory_make("tee", "video_tee");
+
+    // 재생 엘리먼트 생성
     data.video_queue_display = gst_element_factory_make("queue", "video_queue_display");
     data.video_convert_display = gst_element_factory_make("videoconvert", "video_convert_display");
     data.video_sink_display = gst_element_factory_make("autovideosink", "video_sink_display");
+
+    // 녹화 엘리먼트 생성
     data.video_queue_record = gst_element_factory_make("queue", "video_queue_record");
     data.video_valve = gst_element_factory_make("valve", "video_valve");
     data.video_convert_record = gst_element_factory_make("videoconvert", "video_convert_record");
@@ -83,8 +88,7 @@ int main(int argc, char* argv[]) {
 
     // 엘리먼트 속성 설정
     g_object_set(G_OBJECT(data.video_valve), "drop", TRUE, NULL);
-    g_object_set(G_OBJECT(data.file_sink), "location", "hls_clip_uridecodebin.mp4", NULL);
-
+    g_object_set(G_OBJECT(data.file_sink), "location", "result.mp4", NULL);
 
     // --- 2. 파이프라인에 엘리먼트 추가 ---
     gst_bin_add_many(GST_BIN(data.pipeline),
@@ -92,7 +96,6 @@ int main(int argc, char* argv[]) {
         data.video_queue_display, data.video_convert_display, data.video_sink_display,
         data.video_queue_record, data.video_valve, data.video_convert_record, data.video_encoder,
         data.muxer, data.file_sink,
-        // 오디오 엘리먼트 추가 (필요시)
         NULL);
 
     // --- 3. 엘리먼트 연결 ---
@@ -258,29 +261,6 @@ static void pad_added_handler(GstElement* src, GstPad* new_pad, CustomData* data
             g_print("Link succeeded for raw video pad (type '%s').\n", new_pad_type);
         }
     }
-    // 오디오 패드 처리 (raw audio - 필요시 주석 해제 및 audio_tee 추가)
-    /*
-    else if (g_str_has_prefix(new_pad_type, "audio/x-raw")) {
-        // audio_tee의 싱크 패드 가져오기
-        tee_sink_pad = gst_element_get_static_pad(data->audio_tee, "sink");
-        if (!tee_sink_pad) {
-            g_printerr("Could not get sink pad from audio_tee.\n");
-            goto exit;
-        }
-        // 이미 연결되어 있는지 확인
-        if (gst_pad_is_linked(tee_sink_pad)) {
-            g_print("Audio Tee sink pad already linked. Ignoring new pad '%s'.\n", GST_PAD_NAME(new_pad));
-            goto exit;
-        }
-        // 연결 시도
-        ret = gst_pad_link(new_pad, tee_sink_pad);
-        if (GST_PAD_LINK_FAILED(ret)) {
-            g_printerr("Link failed for raw audio pad: %s\n", gst_pad_link_get_name(ret));
-        } else {
-            g_print("Link succeeded for raw audio pad (type '%s').\n", new_pad_type);
-        }
-    }
-    */
     else {
         g_print("Ignoring pad with type '%s'.\n", new_pad_type);
     }
@@ -301,26 +281,17 @@ static gboolean bus_call(GstBus* bus, GstMessage* msg, CustomData* data) {
         g_print("End-of-stream\n");
         g_main_loop_quit(data->loop);
         break;
-        // case GST_MESSAGE_ERROR: {
-        //     gchar* debug = NULL;
-        //     GError* error = NULL;
-        //     gst_message_parse_error(msg, &error, &debug);
-        //     g_printerr("ERROR from element %s: %s\n", GST_OBJECT_NAME(GST_MESSAGE_SRC(msg)), error->message);
-        //     g_printerr("Debugging info: %s\n", (debug) ? debug : "none");
-        //     // uridecodebin 내부 오류 확인
-        //     if (GST_IS_URI_DECODE_BIN(GST_MESSAGE_SRC(msg))) {
-        //         GstElement* source = NULL;
-        //         g_object_get(GST_MESSAGE_SRC(msg), "source", &source, NULL);
-        //         if (source) {
-        //             g_printerr("Error might be related to the internal source element: %s\n", GST_ELEMENT_NAME(source));
-        //             gst_object_unref(source);
-        //         }
-        //     }
-        //     g_error_free(error);
-        //     g_free(debug);
-        //     g_main_loop_quit(data->loop);
-        //     break;
-        // }
+    case GST_MESSAGE_ERROR: {
+        gchar* debug = NULL;
+        GError* error = NULL;
+        gst_message_parse_error(msg, &error, &debug);
+        g_printerr("ERROR from element %s: %s\n", GST_OBJECT_NAME(GST_MESSAGE_SRC(msg)), error->message);
+        g_printerr("Debugging info: %s\n", (debug) ? debug : "none");
+        g_error_free(error);
+        g_free(debug);
+        g_main_loop_quit(data->loop);
+        break;
+    }
     case GST_MESSAGE_WARNING: {
         gchar* debug = NULL;
         GError* error = NULL;
@@ -340,24 +311,6 @@ static gboolean bus_call(GstBus* bus, GstMessage* msg, CustomData* data) {
         }
         break;
     }
-                                  //                               // uridecodebin 관련 메시지 처리 (선택 사항)
-                                  // case GST_MESSAGE_ELEMENT:
-                                  //     if (gst_navigation_message_parse(msg, NULL)) {
-                                  //         // Navigation 메시지 (예: 마우스 클릭) - 여기서는 무시
-                                  //     }
-                                  //     else if (GST_MESSAGE_SRC(msg) == GST_OBJECT(data->uri_decode_bin)) {
-                                  //         const GstStructure* s = gst_message_get_structure(msg);
-                                  //         if (gst_structure_has_name(s, "uridecodebin-source-setup")) {
-                                  //             GstElement* source_element = NULL;
-                                  //             gst_structure_get(s, "source", GST_TYPE_ELEMENT, &source_element, NULL);
-                                  //             if (source_element) {
-                                  //                 g_print("uridecodebin setup internal source: %s\n", GST_ELEMENT_NAME(source_element));
-                                  //                 // 필요한 경우 여기서 source_element 속성 설정 가능
-                                  //                 gst_object_unref(source_element);
-                                  //             }
-                                  //         }
-                                  //     }
-                                  break;
     default:
         break;
     }
@@ -444,4 +397,12 @@ static gboolean handle_keyboard(GIOChannel* source, GIOCondition condition, Cust
 
     // 소스 감시 유지
     return TRUE;
+}
+
+int main(int argc, char* argv[]) {
+#if defined(__APPLE__) && TARGET_OS_MAC && !TARGET_OS_IPHONE
+    return gst_macos_main((GstMainFunc)clipper_main, argc, argv, NULL);
+#else
+    return clipper_main(argc, argv);
+#endif
 }
